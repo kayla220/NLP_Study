@@ -52,13 +52,13 @@ class attentionDisplay(object):
 
 
     def _resize_and_tokenize(self, input_string):
-        tokenized_sentence = list(tokenize([input_string]))[0]
+        tokenized_sentence = list(tokenizer([input_string]))[0]
         tokenized_sentence = tokenized_sentence + [''] * (
             MAX_DOCUMENT_LENGTH - len(tokenized_sentence))
         tokenized_sentence = tokenized_sentence[:MAX_DOCUMENT_LENGTH]
         return tokenized_sentence
 
-    def display_prediction_attention(self, input_string)
+    def display_prediction_attention(self, input_string):
         pred, attn = self._predict_sentence(input_string)
         if pred[0]:
             print('Toxic')

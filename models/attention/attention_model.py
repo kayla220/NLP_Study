@@ -8,7 +8,7 @@ import numpy as np
 import time
 import os, sys
 from sklearn import metrics
-# from visualize_attention import attentionDisplay
+from visualize_attention import attentionDisplay
 from process_figshare import download_figshare, process_figshare
 print(tf.__version__)
 
@@ -60,10 +60,12 @@ def process_inputs(vocab_processor, df, train_label='train', test_label='test'):
     # Return the transformed data and the number of n_words
     return x_train, y_train, x_test, y_test, n_words
 
+# x_train, y_train, x_test, y_test, n_words = process_inputs(vocab_processor, wiki)
 
 # STEP1: Embed
 # Random initialization using embed_sequence
 def embed(features):
+    n_words = len(vocab_processor.vocabulary_)
     word_vectors = tf.contrib.layers.embed_sequence(
         features[WORDS_FEATURE],
         vocab_size=n_words,
@@ -76,7 +78,7 @@ def encode(word_vectors):
     rnn_fw_cell = tf.contrib.rnn.GRUCell(hparams['rnn_cell_size'])
     rnn_bw_cell = tf.contrib.rnn.GRUCell(hparams['rnn_cell_size'])
 
-    ouputs, _ = tf.nn.bidirectional_dynamic_rnn(rnn_fw_cell,
+    outputs, _ = tf.nn.bidirectional_dynamic_rnn(rnn_fw_cell,
                                                 rnn_bw_cell,
                                                 word_vectors,
                                                 dtype=tf.float32,
@@ -98,9 +100,9 @@ def attend(inputs, attention_size, attention_depth):
     logits = tf.reshape(x, [-1, sequence_length, 1])
     alphas = tf.nn.softmax(logits, dim=1)
 
-    output = tf.reduce_sum(inputs _ alphas, 1)
+    output = tf.reduce_sum(inputs * alphas, 1)
 
-    return ouput, alphas
+    return output, alphas
 
 # STEP4: Predict
 def estimator_spec_for_softmax_classification(logits, labels, mode, alphas):
@@ -134,7 +136,7 @@ def estimator_spec_for_softmax_classification(logits, labels, mode, alphas):
 
 def predict(encoding, labels, mode, alphas):
     logits = tf.layers.dense(encoding, MAX_LABEL, activation=None)
-    return estimator_spec_for_softmax_classification(logits=logits labels=labels, mode=mode, alphas=alphas)
+    return estimator_spec_for_softmax_classification(logits=logits, labels=labels, mode=mode, alphas=alphas)
 
 
 # STEP5: Complete Model Architecture
@@ -154,19 +156,19 @@ def main():
     # process_figshare()
     x_train, y_train, x_test, y_test, n_words = process_inputs(vocab_processor, wiki)
 
-    # STEP5: Train
-    current_time = str(int(time.time()))
-    mode_dir = os.path.join('checkpoints', current_time)
-    classifier = tf.estimator.Estimator(mode_fn=bi_rnn_model,
+    # # STEP5: Train
+    # current_time = str(int(time.time()))
+    # model_dir = os.path.join('checkpoints', current_time)
+    classifier = tf.estimator.Estimator(model_fn=bi_rnn_model,
                                         model_dir=model_dir)
 
-    # TRAIN
-    train_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={WORDS_FEATUREL: x_train},
-        y=y_train,
-        batch_size=hparams['batch_size'],
-        num_epochs=None,
-        shuffle=True)
+    # # TRAIN
+    # train_input_fn = tf.estimator.inputs.numpy_input_fn(
+    #     x={WORDS_FEATURE: x_train},
+    #     y=y_train,
+    #     batch_size=hparams['batch_size'],
+    #     num_epochs=None,
+    #     shuffle=True)
 
     classifier.train(input_fn=train_input_fn,
                     steps=NUM_STEPS)
@@ -175,9 +177,10 @@ def main():
     # PREDICT
     test_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={WORDS_FEATURE: x_test},
-          y=y_test,
-          num_epochs=1,
-          shuffle=False)
+        y=y_test,
+        num_epochs=1,
+        shuffle=False)
+    predictions = classifier.predict(input_fn=test_input_fn)
 
     y_predicted = []
     alphas_predicted = []
@@ -187,10 +190,11 @@ def main():
     # Evaluate
     scores = classifier.evaluate(input_fn=test_input_fn)
     print('Accuracy: {0:f}'.format(scores['accuracy']))
-    print('AUC: {0:f}'.format(socres['auc']))
+    print('AUC: {0:f}'.format(scores['auc']))
 
     display = attentionDisplay(vocab_processor, classifier)
     display.display_prediction_attention('Thanks for your help editing this.')
-
+    display.display_prediction_attention('God damn it!')
+    display.display_prediction_attention('Gosh darn it!')
 if __name__ == "__main__":
     sys.exit(main())
