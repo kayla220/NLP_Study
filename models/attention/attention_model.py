@@ -83,6 +83,70 @@ def encode(word_vectors):
                                                 time_major=False)
     return outputs
 
+# STEP3: Attend
+def attend(inputs, attention_size, attention_depth):
+    inputs = tf.concat(inputs, axis=2)
+
+    inputs_shape = inputs.shape
+    sequence_length = inputs_shape[1].value
+    final_layer_size = inputs_shape[2].value
+
+    x = tf.reshape(inputs, [-1, final_layer_size])
+    for _ in range(attention_depth - 1):
+        x = tf.layers.dense(x, attention_size, activation=tf.nn.relu)
+    x = tf.layers.dense(x, 1, activation=None)
+    logits = tf.reshape(x, [-1, sequence_length, 1])
+    alphas = tf.nn.softmax(logits, dim=1)
+
+    output = tf.reduce_sum(inputs _ alphas, 1)
+
+    return ouput, alphas
+
+# STEP4: Predict
+def estimator_spec_for_softmax_classification(logits, labels, mode, alphas):
+    predicted_classes = tf.argmax(logits, 1)
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        return tf.estimator.EstimatorSpec(
+            mode=mode,
+            predictions={
+                'class': predicted_classes,
+                'prob': tf.nn.softmax(logits),
+                'attention': alphas
+            })
+    onehot_labels = tf.one_hot(labels, MAX_LABEL, 1, 0)
+    loss = tf.losses.softmax_cross_entropy(
+        onehot_labels=onehot_labels, logits=logits)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.01)
+        train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
+        return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+
+    eval_metric_ops = {
+        'accuracy': tf.metrics.accuracy(
+            labels=labels, predictions=predicted_classes
+        ),
+        'auc': tf.metrics.auc(
+            labels=labels, predictions=predicted_classes
+        )
+    }
+    return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
+
+
+def predict(encoding, labels, mode, alphas):
+    logits = tf.layers.dense(encoding, MAX_LABEL, activation=None)
+    return estimator_spec_for_softmax_classification(logits=logits labels=labels, mode=mode, alphas=alphas)
+
+
+# STEP5: Complete Model Architecture
+# Embed -> Encode -> Attend -> Predict
+def bi_rnn_model(features, labels, mode):
+    word_vectors = embed(features)
+    outputs = encode(word_vectors)
+    encoding, alphas = attend(outputs,
+                              hparams['attention_size'],
+                              hparams['attention_depth'])
+    return predict(encoding, labels, mode, alphas)
+
 
 def main():
     # Download the data from Figshare and cleansing and splitting it for use in training
@@ -90,6 +154,43 @@ def main():
     # process_figshare()
     x_train, y_train, x_test, y_test, n_words = process_inputs(vocab_processor, wiki)
 
+    # STEP5: Train
+    current_time = str(int(time.time()))
+    mode_dir = os.path.join('checkpoints', current_time)
+    classifier = tf.estimator.Estimator(mode_fn=bi_rnn_model,
+                                        model_dir=model_dir)
+
+    # TRAIN
+    train_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={WORDS_FEATUREL: x_train},
+        y=y_train,
+        batch_size=hparams['batch_size'],
+        num_epochs=None,
+        shuffle=True)
+
+    classifier.train(input_fn=train_input_fn,
+                    steps=NUM_STEPS)
+
+    # STEP6: Predict and Evaluate Model
+    # PREDICT
+    test_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={WORDS_FEATURE: x_test},
+          y=y_test,
+          num_epochs=1,
+          shuffle=False)
+
+    y_predicted = []
+    alphas_predicted = []
+    for p in predictions:
+        y_predicted.append(p['class'])
+        alphas_predicted.append(p['attention'])
+    # Evaluate
+    scores = classifier.evaluate(input_fn=test_input_fn)
+    print('Accuracy: {0:f}'.format(scores['accuracy']))
+    print('AUC: {0:f}'.format(socres['auc']))
+
+    display = attentionDisplay(vocab_processor, classifier)
+    display.display_prediction_attention('Thanks for your help editing this.')
 
 if __name__ == "__main__":
     sys.exit(main())
